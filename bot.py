@@ -6,6 +6,32 @@ from typing import Dict, List, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
+
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# Добавьте этот класс для обработки пингов от Render
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+    
+    def log_message(self, format, *args):
+        # Отключаем логирование запросов
+        pass
+
+# Функция для запуска HTTP сервера на порту Render
+def run_health_server():
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"Health check server running on port {port}")
+    server.serve_forever()
+
+# Запускаем health check сервер в отдельном потоке
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
+
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -13,9 +39,9 @@ logger = logging.getLogger(__name__)
 # Список сотрудников
 EMPLOYEES = ["Наринэ", "Катя", "Жанна", "Августина", "Лилит", "Настя", "Ира", "Юля", "Богдан"]
 
-# ID администраторов (нужно заменить на реальные ID пользователей Telegram)
-# Как получить ID: напишите боту @userinfobot
-ADMIN_IDS = [402039866, 1078706303]  # ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID!
+
+
+ADMIN_IDS = [402039866, 1078706303]  
 
 # Штрафы по категориям
 FINES = {
@@ -449,7 +475,7 @@ def main():
     
     import os
 app = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-    # app = Application.builder().token("8504953196:AAFYnwIytOkwArO4Kc4Iuts_ikJJaLA1kc4").build()
+
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
