@@ -1,14 +1,11 @@
 import os
 import logging
 import sqlite3
+import threading
 from datetime import datetime
-from typing import Dict, List, Tuple
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-
-
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Добавьте этот класс для обработки пингов от Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -468,18 +465,20 @@ def main():
     
     # ВАЖНО: Замените ADMIN_IDS на реальные ID администраторов!
     print("=" * 50)
-    print("ВАЖНО: Не забудьте заменить ADMIN_IDS на реальные ID!")
-    print("Как получить ID: напишите боту @userinfobot")
-    print("Текущие ID администраторов:", ADMIN_IDS)
-    print("=" * 50)
-    
-    import os
-app = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
+print("ВАЖНО: Не забудьте заменить ADMIN_IDS на реальные ID!")
+print("Как получить ID: напишите боту @userinfobot")
+print("Текущие ID администраторов:", ADMIN_IDS)
+print("=" * 50)
 
-    
+# ВАЖНО: Весь код ДОЛЖЕН быть внутри функции main()
+
+def main():
+    import os
+    app = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
-    
+
     print("Бот запущен... Нажмите Ctrl+C для остановки")
     app.run_polling()
 
