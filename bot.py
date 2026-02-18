@@ -461,25 +461,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Нет доступных действий")
 
 def main():
+    # Инициализация БД
     init_db()
     
-    # ВАЖНО: Замените ADMIN_IDS на реальные ID администраторов!
+    # Вывод информации об администраторах
     print("=" * 50)
-print("ВАЖНО: Не забудьте заменить ADMIN_IDS на реальные ID!")
-print("Как получить ID: напишите боту @userinfobot")
-print("Текущие ID администраторов:", ADMIN_IDS)
-print("=" * 50)
+    print("ВАЖНО: Не забудьте заменить ADMIN_IDS на реальные ID!")
+    print("Как получить ID: напишите боту @userinfobot")
+    print("Текущие ID администраторов:", ADMIN_IDS)
+    print("=" * 50)
+    
+    # Получаем токен из переменных окружения
+    token = os.environ.get('BOT_TOKEN')
+    
+    if not token:
+        print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
+        print("Проверьте настройки Environment Variables на Render")
+        return
+    
+    print(f"✅ Токен получен: {token[:10]}...")  # Показываем начало токена для проверки
+    
+    # Создаем приложение
+    app = Application.builder().token(token).build()
 
-# ВАЖНО: Весь код ДОЛЖЕН быть внутри функции main()
-
-def main():
-    import os
-    app = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-
+    # Добавляем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Бот запущен... Нажмите Ctrl+C для остановки")
+    print("✅ Бот запущен...")
     app.run_polling()
 
 if __name__ == "__main__":
