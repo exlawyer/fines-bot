@@ -460,7 +460,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "no_action":
         await query.answer("Нет доступных действий")
 
-ddef main():
+def main():
     import os
     import traceback # Добавляем модуль для печати полной ошибки
 
