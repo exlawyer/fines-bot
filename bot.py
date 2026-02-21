@@ -597,15 +597,14 @@ def main():
     app = Application.builder().token(token).build()
 
     import os
-    import traceback # Добавляем модуль для печати полной ошибки
-ef631e8fd22905bbf8608941dff1c9c49c433aa1
+    import traceback  # Добавляем модуль для печати полной ошибки
 
-    # Добавляем обработчики
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
+# Добавляем обработчики
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("✅ Бот запущен...")
-    app.run_polling()
+print("✅ Бот запущен...")
+app.run_polling()
 
 if __name__ == "__main__":
     main()
