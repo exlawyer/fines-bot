@@ -573,7 +573,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Нет доступных действий")
 
 def main():
-<<<<<<< HEAD
+HEAD
     # Инициализация БД
     init_db()
     
@@ -596,10 +596,10 @@ def main():
     
     # Создаем приложение
     app = Application.builder().token(token).build()
-=======
+
     import os
     import traceback # Добавляем модуль для печати полной ошибки
->>>>>>> ef631e8fd22905bbf8608941dff1c9c49c433aa1
+ef631e8fd22905bbf8608941dff1c9c49c433aa1
 
     # Добавляем обработчики
     app.add_handler(CommandHandler("start", start))
