@@ -600,11 +600,11 @@ def main():
     import traceback  # Добавляем модуль для печати полной ошибки
 
 # Добавляем обработчики
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-print("✅ Бот запущен...")
-app.run_polling()
+    print("✅ Бот запущен...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
