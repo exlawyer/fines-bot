@@ -36,8 +36,6 @@ logger = logging.getLogger(__name__)
 # Список сотрудников
 EMPLOYEES = ["Наринэ", "Катя", "Жанна", "Августина", "Лилит", "Настя", "Ира", "Юля", "Богдан"]
 
-
-
 ADMIN_IDS = [402039866, 1078706303]  
 
 # Штрафы по категориям
@@ -139,6 +137,30 @@ def get_employee_fines_list(employee):
     
     return results
 
+def get_employee_fines_summary(employee):
+    """Получает сводку штрафов сотрудника с группировкой по причинам"""
+    conn = sqlite3.connect('fines.db')
+    c = conn.cursor()
+    current_month = get_current_month()
+    
+    # Получаем общую сумму
+    c.execute('SELECT SUM(amount) FROM fines WHERE month=? AND employee=?', (current_month, employee))
+    total = c.fetchone()[0] or 0
+    
+    # Получаем группировку по причинам с количеством
+    c.execute('''
+        SELECT reason, COUNT(*) as count, SUM(amount) as total_amount 
+        FROM fines 
+        WHERE month=? AND employee=? 
+        GROUP BY reason 
+        ORDER BY total_amount DESC
+    ''', (current_month, employee))
+    
+    reasons_summary = c.fetchall()
+    conn.close()
+    
+    return total, reasons_summary
+
 def delete_specific_fine(fine_id):
     """Удаляет конкретный штраф по ID"""
     conn = sqlite3.connect('fines.db')
@@ -216,7 +238,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin_user = is_admin(user_id)
     
     # Проверяем права доступа для административных функций
-    if not is_admin_user and query.data not in ["check_fines", "main_menu", "no_action"]:
+    if not is_admin_user and query.data not in ["check_fines", "main_menu", "no_action", "back_to_fines_list"]:
         await query.edit_message_text(
             "⛔ У вас нет прав для выполнения этого действия.\n\n"
             "Только администраторы могут добавлять и корректировать штрафы.",
@@ -431,73 +453,155 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     elif query.data == "check_fines":
-        fines = get_monthly_fines()
+        # Получаем список сотрудников со штрафами
         employees_with_fines = get_all_employees_with_fines()
         
-        if not fines:
+        if not employees_with_fines:
             text = f"📊 Штрафы за {get_current_month()}\n\n"
             text += "За текущий месяц штрафов нет."
+            
+            # Для админов добавляем кнопку добавления
+            if is_admin_user:
+                keyboard = [
+                    [InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine")],
+                    [InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]
+                ]
+            else:
+                keyboard = [[InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]]
+            
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+        
+        # Создаем клавиатуру с сотрудниками
+        keyboard = []
+        for emp in employees_with_fines:
+            total = get_employee_total(emp)
+            keyboard.append([InlineKeyboardButton(
+                f"{emp} — {total} баллов", 
+                callback_data=f"view_employee_{emp}"
+            )])
+        
+        # Добавляем навигационные кнопки
+        if is_admin_user:
+            keyboard.append([
+                InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine"),
+                InlineKeyboardButton("✏️ Корректировка", callback_data="adjust_fines")
+            ])
+        
+        keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
+        
+        await query.edit_message_text(
+            f"📊 ШТРАФЫ ЗА {get_current_month()}\n\n"
+            f"Выберите сотрудника для просмотра детальной информации:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif query.data.startswith("view_employee_"):
+        employee = query.data[14:]
+        
+        # Получаем сводку по штрафам сотрудника
+        total, reasons_summary = get_employee_fines_summary(employee)
+        
+        # Формируем текст сообщения
+        text = f"👤 **{employee}**\n"
+        text += f"📅 Месяц: {get_current_month()}\n"
+        text += f"💰 **Общая сумма штрафов: {total} баллов**\n\n"
+        
+        if reasons_summary:
+            text += "📋 **Детализация по причинам:**\n"
+            text += "═" * 25 + "\n"
+            
+            for reason, count, amount in reasons_summary:
+                # Эмодзи для разных сумм
+                if amount >= 50:
+                    emoji = "🔴"
+                elif amount >= 25:
+                    emoji = "🟠"
+                else:
+                    emoji = "🟡"
+                
+                text += f"{emoji} **{reason}**\n"
+                text += f"   └─ {count} штраф(ов) на {amount} баллов\n"
+            
+            text += "═" * 25 + "\n"
         else:
-            text = f"📊 ШТРАФЫ ЗА {get_current_month()}\n"
-            text += "═" * 25 + "\n\n"
-            
-            sorted_fines = sorted(fines.items(), key=lambda x: x[1], reverse=True)
-            
-            for emp, total_fine in sorted_fines:
-                text += f"👤 {emp}: {total_fine} баллов\n"
+            text += "❌ Нет штрафов за текущий месяц\n"
+        
+        # Кнопки навигации
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад к списку", callback_data="check_fines")],
+            [InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]
+        ]
         
         # Для админов добавляем кнопку корректировки
-        if is_admin_user:
-            keyboard = [
-                [InlineKeyboardButton("✏️ Корректировка штрафов", callback_data="adjust_fines")],
-                [InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]
-            ]
-        else:
-            keyboard = [[InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]]
+        if is_admin(user_id):
+            keyboard.insert(0, [InlineKeyboardButton("✏️ Корректировать штрафы", callback_data=f"adjust_emp_{employee}")])
         
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    elif query.data == "back_to_fines_list":
+        # Возврат к списку сотрудников со штрафами
+        employees_with_fines = get_all_employees_with_fines()
+        
+        keyboard = []
+        for emp in employees_with_fines:
+            total = get_employee_total(emp)
+            keyboard.append([InlineKeyboardButton(
+                f"{emp} — {total} баллов", 
+                callback_data=f"view_employee_{emp}"
+            )])
+        
+        if is_admin_user:
+            keyboard.append([
+                InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine"),
+                InlineKeyboardButton("✏️ Корректировка", callback_data="adjust_fines")
+            ])
+        
+        keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
+        
+        await query.edit_message_text(
+            f"📊 ШТРАФЫ ЗА {get_current_month()}\n\n"
+            f"Выберите сотрудника для просмотра детальной информации:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     
     elif query.data == "no_action":
         await query.answer("Нет доступных действий")
 
-ddef main():
-    import os
-    import traceback # Добавляем модуль для печати полной ошибки
+def main():
+    # Инициализация БД
+    init_db()
+    
+    # Вывод информации об администраторах
+    print("=" * 50)
+    print("ВАЖНО: Не забудьте заменить ADMIN_IDS на реальные ID!")
+    print("Как получить ID: напишите боту @userinfobot")
+    print("Текущие ID администраторов:", ADMIN_IDS)
+    print("=" * 50)
+    
+    # Получаем токен из переменных окружения
+    token = os.environ.get('BOT_TOKEN')
+    
+    if not token:
+        print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
+        print("Проверьте настройки Environment Variables на Render")
+        return
+    
+    print(f"✅ Токен получен: {token[:10]}...")  # Показываем начало токена для проверки
+    
+    # Создаем приложение
+    app = Application.builder().token(token).build()
 
-    try:
-        # Инициализация БД
-        init_db()
+    # Добавляем обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-        print("=" * 50)
-        print("Текущие ID администраторов:", ADMIN_IDS)
-        print("=" * 50)
-
-        # Получаем токен
-        token = os.environ.get('BOT_TOKEN')
-
-        if not token:
-            # Вместо простого print, вызываем исключение, чтобы попасть в except
-            raise ValueError("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
-
-        print(f"✅ Токен получен. Начинается с: {token[:5]}...")
-
-        # Создаем приложение
-        app = Application.builder().token(token).build()
-
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(button_handler))
-
-        print("✅ Бот запускается...")
-        # Запуск блокаирующий, поэтому код после него не выполнится до остановки
-        app.run_polling()
-
-    except Exception as e:
-        # Печатаем полную информацию об ошибке
-        print(f"❌ БОТ УПАЛ С ОШИБКОЙ: {e}")
-        print("🧩 Полный traceback:")
-        traceback.print_exc() # Это напечатает всю цепочку вызовов, приведшую к ошибке
-        # Завершаем программу с кодом ошибки, чтобы Render понял, что деплой провалился
-        exit(1)
+    print("✅ Бот запущен...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
