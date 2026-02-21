@@ -596,10 +596,7 @@ def main():
     # Создаем приложение
     app = Application.builder().token(token).build()
 
-    import os
-    import traceback  # Добавляем модуль для печати полной ошибки
-
-# Добавляем обработчики
+    # Добавляем обработчики (с правильным отступом!)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
