@@ -269,53 +269,53 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await main_menu(query, context)
     
     elif query.data == "add_fine" and is_admin_user:
+        # Шаг 1: Выбор сотрудника
         keyboard = []
         for emp in EMPLOYEES:
-            keyboard.append([InlineKeyboardButton(emp, callback_data=f"emp_{emp}")])
+            keyboard.append([InlineKeyboardButton(emp, callback_data=f"emp_fine_{emp}")])
         keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
         
         await query.edit_message_text(
             "👥 Выберите сотрудника:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+   
     
-    elif query.data.startswith("emp_") and is_admin_user:
-        employee = query.data[4:]
+    elif query.data.startswith("emp_fine_") and is_admin_user:
+        # Шаг 2: Выбор нарушения
+        employee = query.data[9:]
         context.user_data['employee'] = employee
+        
+        # Собираем все нарушения в один список
         keyboard = []
-        for amt in FINES.keys():
-            keyboard.append([InlineKeyboardButton(f"{amt} баллов", callback_data=f"cat_{amt}")])
+        for amount, reasons in FINES.items():
+            for reason in reasons:
+                # Создаем безопасный callback_data (заменяем пробелы на _)
+                safe_reason = reason.replace(' ', '_')
+                keyboard.append([InlineKeyboardButton(
+                    f"{reason} ({amount} баллов)", 
+                    callback_data=f"fine_reason_{amount}_{safe_reason}"
+                )])
+        
         keyboard.append([InlineKeyboardButton("◀️ Назад к сотрудникам", callback_data="add_fine")])
         keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
         
         await query.edit_message_text(
             f"👤 Сотрудник: {employee}\n\n"
-            f"💰 Выберите сумму штрафа:",
+            f"📋 Выберите нарушение:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    elif query.data.startswith("cat_") and is_admin_user:
-        amount = int(query.data[4:])
-        context.user_data['amount'] = amount
-        employee = context.user_data.get('employee', '')
-        keyboard = []
-        for i, reason in enumerate(FINES[amount]):
-            keyboard.append([InlineKeyboardButton(reason, callback_data=f"reason_{i}")])
-        keyboard.append([InlineKeyboardButton("◀️ Назад к суммам", callback_data=f"emp_{employee}")])
-        keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
+    elif query.data.startswith("fine_reason_") and is_admin_user:
+        # Шаг 3: Добавление штрафа
+        parts = query.data.split('_')
+        amount = int(parts[2])
+        # Восстанавливаем причину (может содержать несколько частей)
+        reason_parts = parts[3:]
+        reason = ' '.join(reason_parts).replace('_', ' ')
         
-        await query.edit_message_text(
-            f"👤 Сотрудник: {employee}\n"
-            f"💰 Сумма: {amount} баллов\n\n"
-            f"📋 Выберите причину:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    
-    elif query.data.startswith("reason_") and is_admin_user:
-        idx = int(query.data[7:])
-        amount = context.user_data['amount']
-        employee = context.user_data['employee']
-        reason = FINES[amount][idx]
+        employee = context.user_data.get('employee', '')
+        
         add_fine(employee, amount, reason)
         
         keyboard = [
