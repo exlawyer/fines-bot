@@ -34,7 +34,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Список сотрудников
-EMPLOYEES = ["Наринэ", "Катя", "Жанна", "Августина", "Лилит", "Настя", "Ира", "Юля", "Богдан"]
+EMPLOYEES = ["Наринэ", "Катя К", "Жанна", "Августина", "Лилит", "Настя", "Ира", "Юля", "Катя С", "Богдан"]
 
 ADMIN_IDS = [402039866, 1078706303]  
 
