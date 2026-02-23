@@ -63,16 +63,28 @@ def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
     # Проверяем по списку ADMIN_IDS
     if user_id in ADMIN_IDS:
+        print(f"✅ Админ {user_id} найден в списке ADMIN_IDS")
         return True
     
-    # Также проверяем в базе данных (на случай динамического добавления)
-    conn = sqlite3.connect('fines.db')
-    c = conn.cursor()
-    c.execute('SELECT user_id FROM admins WHERE user_id = ?', (user_id,))
-    result = c.fetchone()
-    conn.close()
+    print(f"❌ Пользователь {user_id} НЕ в списке ADMIN_IDS: {ADMIN_IDS}")
     
-    return result is not None
+    # Также проверяем в базе данных (на случай динамического добавления)
+    try:
+        conn = sqlite3.connect('fines.db')
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM admins WHERE user_id = ?', (user_id,))
+        result = c.fetchone()
+        conn.close()
+        
+        if result:
+            print(f"✅ Админ {user_id} найден в БД")
+            return True
+        else:
+            print(f"❌ Админ {user_id} НЕ найден в БД")
+    except Exception as e:
+        print(f"Ошибка при проверке БД: {e}")
+    
+    return False
 
 def get_current_month():
     return datetime.now().strftime("%Y-%m")
@@ -224,6 +236,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or "без username"
     
     logger.info(f"Пользователь {user_id} (@{username}) запустил бота")
+    
+    # ДИАГНОСТИКА
+    print(f"START: user_id={user_id}, username={username}")
+    print(f"START: ADMIN_IDS={ADMIN_IDS}")
+    print(f"START: is_admin={is_admin(user_id)}")
     
     if is_admin(user_id):
         await main_menu(update, context, f"👋 Добро пожаловать, администратор @{username}!")
