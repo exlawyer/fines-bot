@@ -7,7 +7,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Добавьте этот класс для обработки пингов от Render
+# Добавьте этот класс для обработки пингов от Render (для BotHost не обязателен, но пусть будет)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -18,7 +18,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         # Отключаем логирование запросов
         pass
 
-# Функция для запуска HTTP сервера на порту Render
+# Функция для запуска HTTP сервера (для BotHost не обязательна, но пусть будет)
 def run_health_server():
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
@@ -42,7 +42,7 @@ ADMIN_IDS = [402039866, 1078706303]
 FINES = {
     50: ["❌ Невыполнение задания", "⛓️‍💥 Порча продукции", "🔪 Порча инвентаря"],
     25: ["🏷 Отсутствие маркировки", "📅 Просрок/Продление срока", "📦 Нет упаковки", "🦠 Грязное оборудование", "👎 Нетоварный вид", "🤢 Хранение продуктов"],
-    15: ["👋 Не здороваемся", "🍔/👕 Еда / личн.вещи в раб.зоне", "🙅‍♂️ Зона самообслуж.", "🧹 Крошки/грязь в зале", "🚪 Не открыта вх.дверь", "😣 Прочее", ]
+    15: ["👋 Не здороваемся", "🍔/👕 Еда / личн.вещи в раб.зоне", "🙅‍♂️ Зона самообслуж.", "🧹 Крошки/грязь в зале", "🚪 Не открыта вх.дверь", "😣 Прочее"]
 }
 
 def init_db():
@@ -207,6 +207,55 @@ def get_monthly_fines():
     conn.close()
     return results
 
+# ============= НОВЫЕ ФУНКЦИИ ДЛЯ АРХИВА МЕСЯЦЕВ =============
+
+def get_available_months():
+    """Получает список всех месяцев, за которые есть штрафы"""
+    conn = sqlite3.connect('fines.db')
+    c = conn.cursor()
+    c.execute('SELECT DISTINCT month FROM fines ORDER BY month DESC')
+    results = [row[0] for row in c.fetchall()]
+    conn.close()
+    return results
+
+def get_monthly_fines_by_month(month):
+    """Получает штрафы за конкретный месяц"""
+    conn = sqlite3.connect('fines.db')
+    c = conn.cursor()
+    c.execute('SELECT employee, SUM(amount) FROM fines WHERE month=? GROUP BY employee', (month,))
+    results = dict(c.fetchall())
+    conn.close()
+    return results
+
+def get_employee_fines_summary_by_month(employee, month):
+    """Получает сводку штрафов сотрудника за конкретный месяц"""
+    conn = sqlite3.connect('fines.db')
+    c = conn.cursor()
+    
+    # Получаем общую сумму
+    c.execute('SELECT SUM(amount) FROM fines WHERE month=? AND employee=?', (month, employee))
+    total = c.fetchone()[0] or 0
+    
+    # Получаем группировку по причинам
+    c.execute('''
+        SELECT reason, COUNT(*) as count, SUM(amount) as total_amount 
+        FROM fines 
+        WHERE month=? AND employee=? 
+        GROUP BY reason 
+        ORDER BY total_amount DESC
+    ''', (month, employee))
+    
+    reasons_summary = c.fetchall()
+    conn.close()
+    
+    return total, reasons_summary
+
+def safe_callback(text: str) -> str:
+    """Заменяет пробелы и специальные символы на _ для callback_data"""
+    return text.replace(' ', '_').replace('/', '_').replace('\\', '_')
+
+# ============================================================
+
 async def main_menu(update_or_query, context: ContextTypes.DEFAULT_TYPE, text="Главное меню:"):
     """Показывает главное меню с учетом прав пользователя"""
     user_id = update_or_query.effective_user.id if hasattr(update_or_query, 'effective_user') else update_or_query.from_user.id
@@ -215,13 +264,15 @@ async def main_menu(update_or_query, context: ContextTypes.DEFAULT_TYPE, text="�
         # Меню для администратора
         keyboard = [
             [InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine")],
-            [InlineKeyboardButton("📊 Проверить штрафы", callback_data="check_fines")],
+            [InlineKeyboardButton("📊 Текущий месяц", callback_data="check_fines")],
+            [InlineKeyboardButton("📅 Архив месяцев", callback_data="show_months")],
             [InlineKeyboardButton("✏️ Корректировка штрафов", callback_data="adjust_fines")]
         ]
     else:
         # Меню для обычного пользователя
         keyboard = [
-            [InlineKeyboardButton("📊 Проверить штрафы", callback_data="check_fines")]
+            [InlineKeyboardButton("📊 Текущий месяц", callback_data="check_fines")],
+            [InlineKeyboardButton("📅 Архив месяцев", callback_data="show_months")]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -251,11 +302,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    # ДИАГНОСТИКА
+    print(f"🔍 CALLBACK: data='{query.data}'")
+    print(f"🔍 is_admin_user={is_admin(query.from_user.id)}")
+    
     user_id = query.from_user.id
     is_admin_user = is_admin(user_id)
     
     # Проверяем права доступа для административных функций
-    if not is_admin_user and query.data not in ["check_fines", "main_menu", "no_action", "back_to_fines_list"]:
+    if not is_admin_user and query.data not in ["check_fines", "main_menu", "no_action", "back_to_fines_list", "show_months"]:
         await query.edit_message_text(
             "⛔ У вас нет прав для выполнения этого действия.\n\n"
             "Только администраторы могут добавлять и корректировать штрафы.",
@@ -272,30 +327,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Шаг 1: Выбор сотрудника
         keyboard = []
         for emp in EMPLOYEES:
-            keyboard.append([InlineKeyboardButton(emp, callback_data=f"emp_fine_{emp}")])
+            safe_emp = safe_callback(emp)
+            keyboard.append([InlineKeyboardButton(emp, callback_data=f"emp_fine_{safe_emp}")])
         keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
         
         await query.edit_message_text(
             "👥 Выберите сотрудника:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-   
     
     elif query.data.startswith("emp_fine_") and is_admin_user:
         # Шаг 2: Выбор нарушения
-        employee = query.data[9:]
+        employee_raw = query.data[9:]
+        
+        # Восстанавливаем оригинальное имя
+        employee = None
+        for emp in EMPLOYEES:
+            if safe_callback(emp) == employee_raw:
+                employee = emp
+                break
+        
+        if not employee:
+            employee = employee_raw.replace('_', ' ')
+        
         context.user_data['employee'] = employee
         
-        # Собираем все нарушения в один список
+        # Собираем все нарушения в один список с индексами
         keyboard = []
+        fine_index = 0
         for amount, reasons in FINES.items():
             for reason in reasons:
-                # Создаем безопасный callback_data (заменяем пробелы на _)
-                safe_reason = reason.replace(' ', '_')
                 keyboard.append([InlineKeyboardButton(
                     f"{reason} ({amount} баллов)", 
-                    callback_data=f"fine_reason_{amount}_{safe_reason}"
+                    callback_data=f"fine_{fine_index}"
                 )])
+                fine_index += 1
         
         keyboard.append([InlineKeyboardButton("◀️ Назад к сотрудникам", callback_data="add_fine")])
         keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
@@ -306,14 +372,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    elif query.data.startswith("fine_reason_") and is_admin_user:
-        # Шаг 3: Добавление штрафа
-        parts = query.data.split('_')
-        amount = int(parts[2])
-        # Восстанавливаем причину (может содержать несколько частей)
-        reason_parts = parts[3:]
-        reason = ' '.join(reason_parts).replace('_', ' ')
+    elif query.data.startswith("fine_") and is_admin_user:
+        # Шаг 3: Добавление штрафа по индексу
+        fine_index = int(query.data[5:])
         
+        # Находим нарушение по индексу
+        all_fines = []
+        for amount, reasons in FINES.items():
+            for reason in reasons:
+                all_fines.append((amount, reason))
+        
+        amount, reason = all_fines[fine_index]
         employee = context.user_data.get('employee', '')
         
         add_fine(employee, amount, reason)
@@ -469,12 +538,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]])
             )
     
+    # ============= ОБНОВЛЕННЫЙ ОБРАБОТЧИК check_fines =============
     elif query.data == "check_fines":
-        # Получаем список сотрудников со штрафами
+        # Получаем список сотрудников со штрафами за текущий месяц
+        current = get_current_month()
         employees_with_fines = get_all_employees_with_fines()
         
         if not employees_with_fines:
-            text = f"📊 Штрафы за {get_current_month()}\n\n"
+            text = f"📊 Текущий месяц ({current})\n\n"
             text += "За текущий месяц штрафов нет."
             
             # Для админов добавляем кнопку добавления
@@ -489,6 +560,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return
         
+        # Форматируем название месяца
+        year, month_num = current.split('-')
+        month_names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                      "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+        month_name = month_names[int(month_num) - 1]
+        
         # Создаем клавиатуру с сотрудниками
         keyboard = []
         for emp in employees_with_fines:
@@ -499,29 +576,39 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )])
         
         # Добавляем навигационные кнопки
+        nav_buttons = []
         if is_admin_user:
-            keyboard.append([
-                InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine"),
-                InlineKeyboardButton("✏️ Корректировка", callback_data="adjust_fines")
-            ])
+            nav_buttons.append(InlineKeyboardButton("📝 Добавить штраф", callback_data="add_fine"))
+            nav_buttons.append(InlineKeyboardButton("✏️ Корректировка", callback_data="adjust_fines"))
         
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        keyboard.append([InlineKeyboardButton("📅 Архив месяцев", callback_data="show_months")])
         keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
         
         await query.edit_message_text(
-            f"📊 ШТРАФЫ ЗА {get_current_month()}\n\n"
+            f"📊 ТЕКУЩИЙ МЕСЯЦ: {month_name.upper()} {year}\n\n"
             f"Выберите сотрудника для просмотра детальной информации:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
+    # ============= ОБНОВЛЕННЫЙ ОБРАБОТЧИК view_employee_ =============
     elif query.data.startswith("view_employee_"):
         employee = query.data[14:]
+        current = get_current_month()
         
-        # Получаем сводку по штрафам сотрудника
+        # Получаем сводку по штрафам сотрудника за текущий месяц
         total, reasons_summary = get_employee_fines_summary(employee)
         
-        # Формируем текст сообщения
+        # Форматируем название месяца
+        year, month_num = current.split('-')
+        month_names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                      "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+        month_name = month_names[int(month_num) - 1]
+        
         text = f"👤 **{employee}**\n"
-        text += f"📅 Месяц: {get_current_month()}\n"
+        text += f"📅 {month_name} {year} (текущий месяц)\n"
         text += f"💰 **Общая сумма штрафов: {total} баллов**\n\n"
         
         if reasons_summary:
@@ -529,7 +616,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "═" * 25 + "\n"
             
             for reason, count, amount in reasons_summary:
-                # Эмодзи для разных сумм
                 if amount >= 50:
                     emoji = "🔴"
                 elif amount >= 25:
@@ -547,12 +633,154 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Кнопки навигации
         keyboard = [
             [InlineKeyboardButton("◀️ Назад к списку", callback_data="check_fines")],
+            [InlineKeyboardButton("📅 Архив месяцев", callback_data="show_months")],
             [InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]
         ]
         
         # Для админов добавляем кнопку корректировки
         if is_admin(user_id):
             keyboard.insert(0, [InlineKeyboardButton("✏️ Корректировать штрафы", callback_data=f"adjust_emp_{employee}")])
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    # ============= НОВЫЙ ОБРАБОТЧИК show_months =============
+    elif query.data == "show_months":
+        # Показываем список доступных месяцев
+        months = get_available_months()
+        current = get_current_month()
+        
+        if not months:
+            await query.edit_message_text(
+                "📅 Архив пуст\n\n"
+                "Пока нет записей о штрафах.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")
+                ]])
+            )
+            return
+        
+        keyboard = []
+        for month in months:
+            # Форматируем месяц для отображения (YYYY-MM -> Месяц ГГГГ)
+            year, month_num = month.split('-')
+            month_names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                          "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+            month_name = month_names[int(month_num) - 1]
+            display_text = f"{month_name} {year}"
+            
+            # Добавляем отметку для текущего месяца
+            if month == current:
+                display_text += " (текущий)"
+                
+            keyboard.append([InlineKeyboardButton(
+                display_text,
+                callback_data=f"month_{month}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
+        
+        await query.edit_message_text(
+            "📅 Выберите месяц для просмотра:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    # ============= НОВЫЙ ОБРАБОТЧИК month_ =============
+    elif query.data.startswith("month_"):
+        # Показываем список сотрудников за выбранный месяц
+        month = query.data[6:]
+        monthly_fines = get_monthly_fines_by_month(month)
+        
+        if not monthly_fines:
+            await query.edit_message_text(
+                f"📊 Штрафы за {month}\n\n"
+                f"За этот месяц штрафов нет.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("◀️ Назад к месяцам", callback_data="show_months"),
+                    InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")
+                ]])
+            )
+            return
+        
+        # Форматируем название месяца для заголовка
+        year, month_num = month.split('-')
+        month_names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                      "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+        month_name = month_names[int(month_num) - 1]
+        
+        text = f"📊 ШТРАФЫ ЗА {month_name.upper()} {year}\n"
+        text += "═" * 25 + "\n\n"
+        
+        # Сортируем по сумме (от большего к меньшему)
+        sorted_fines = sorted(monthly_fines.items(), key=lambda x: x[1], reverse=True)
+        
+        keyboard = []
+        for emp, total in sorted_fines:
+            text += f"👤 {emp}: {total} баллов\n"
+            # Добавляем кнопку для просмотра деталей
+            safe_emp = safe_callback(emp)
+            keyboard.append([InlineKeyboardButton(
+                f"👤 {emp} — {total} баллов",
+                callback_data=f"month_emp_{month}_{safe_emp}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("◀️ Назад к месяцам", callback_data="show_months")])
+        keyboard.append([InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")])
+        
+        await query.edit_message_text(
+            text + "\n" + "Выберите сотрудника для детализации:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    # ============= НОВЫЙ ОБРАБОТЧИК month_emp_ =============
+    elif query.data.startswith("month_emp_"):
+        # Показываем детализацию штрафов сотрудника за выбранный месяц
+        parts = query.data.split('_')
+        month = parts[2]
+        employee_raw = '_'.join(parts[3:])
+        
+        # Восстанавливаем оригинальное имя сотрудника
+        employee = employee_raw.replace('_', ' ')
+        
+        total, reasons_summary = get_employee_fines_summary_by_month(employee, month)
+        
+        # Форматируем название месяца
+        year, month_num = month.split('-')
+        month_names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                      "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+        month_name = month_names[int(month_num) - 1]
+        
+        text = f"👤 **{employee}**\n"
+        text += f"📅 {month_name} {year}\n"
+        text += f"💰 **Общая сумма штрафов: {total} баллов**\n\n"
+        
+        if reasons_summary:
+            text += "📋 **Детализация по причинам:**\n"
+            text += "═" * 25 + "\n"
+            
+            for reason, count, amount in reasons_summary:
+                if amount >= 50:
+                    emoji = "🔴"
+                elif amount >= 25:
+                    emoji = "🟠"
+                else:
+                    emoji = "🟡"
+                
+                text += f"{emoji} **{reason}**\n"
+                text += f"   └─ {count} штраф(ов) на {amount} баллов\n"
+            
+            text += "═" * 25 + "\n"
+        else:
+            text += "❌ Нет штрафов за этот месяц\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад к сотрудникам", callback_data=f"month_{month}")],
+            [InlineKeyboardButton("◀️ Назад к месяцам", callback_data="show_months")],
+            [InlineKeyboardButton("🏠 В главное меню", callback_data="main_menu")]
+        ]
         
         await query.edit_message_text(
             text,
@@ -605,7 +833,7 @@ def main():
     
     if not token:
         print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
-        print("Проверьте настройки Environment Variables на Render")
+        print("Проверьте настройки Environment Variables на Render/BotHost")
         return
     
     print(f"✅ Токен получен: {token[:10]}...")  # Показываем начало токена для проверки
